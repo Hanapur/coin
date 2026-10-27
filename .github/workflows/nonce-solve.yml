@@ -4,24 +4,39 @@ on:
     inputs:
       tag: {required: true}
       dir: {required: true}
+      tmo: {required: false, default: "600"}
+permissions:
+  contents: write
 jobs:
   solve:
     runs-on: ubuntu-latest
-    timeout-minutes: 14
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix: {w: [0,1,2,3,4,5,6,7,8,9]}
     steps:
       - uses: actions/checkout@v4
         with: {ref: nonce-solver}
-      - run: |
-          cat ${{ inputs.dir }}/part*.b64 | base64 -d | gunzip > instance.cnf; head -1 instance.cnf
-          sudo apt-get update -q >/dev/null 2>&1 || true
-          sudo apt-get install -y -q kissat >/dev/null 2>&1 || (git clone -q --depth 1 https://github.com/arminbiere/kissat && cd kissat && ./configure -q >/dev/null && make -j4 >/dev/null && sudo cp build/kissat /usr/local/bin/)
+      - shell: bash
+        run: |
+          set +e
+          W=${{ matrix.w }}; T=${{ inputs.tag }}
+          exec > >(tee log.txt) 2>&1
+          cat ${{ inputs.dir }}/part*.b64 | base64 -d | gunzip > instance.cnf; head -1 instance.cnf; nproc
+          sudo apt-get update -q >/dev/null 2>&1; sudo apt-get install -y -q kissat >/dev/null 2>&1
+          if ! command -v kissat; then git clone -q --depth 1 https://github.com/arminbiere/kissat k && (cd k && ./configure >/dev/null && make -j4 >/dev/null) && sudo cp k/build/kissat /usr/local/bin/; fi
           kissat --version
-          for s in 1 2 3 4; do (timeout 600 kissat -q --seed=$(( ${{ matrix.w }}*4 + s )) instance.cnf > out_$s.txt; echo "rc $?" >> out_$s.txt) & done
-          while true; do for s in 1 2 3 4; do if grep -q '^s SATISFIABLE' out_$s.txt 2>/dev/null; then cp out_$s.txt sol.txt; break 2; fi; done; if [ $(grep -l '^rc' out_*.txt 2>/dev/null | wc -l) -eq 4 ]; then break; fi; sleep 1; done
-          ls -la; test -f sol.txt && grep '^v' sol.txt | tr ' ' '\n' | grep -v '^v$' | grep -v '^$' > model.txt || true
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with: {name: "sol-${{ inputs.tag }}-${{ matrix.w }}", path: "model.txt", if-no-files-found: ignore}
+          START=$(date +%s)
+          for s in 1 2 3 4; do (timeout ${{ inputs.tmo }} kissat -q --seed=$(( W*4 + s )) instance.cnf > out_$s.txt; echo "rc $?" >> out_$s.txt) & done
+          while true; do
+            F=$(grep -l '^s SATISFIABLE' out_*.txt 2>/dev/null | head -1)
+            if [ -n "$F" ]; then cp $F sol.txt; break; fi
+            [ $(grep -l '^rc' out_*.txt 2>/dev/null | wc -l) -ge 4 ] && break
+            sleep 1
+          done
+          echo "elapsed $(( $(date +%s)-START ))"; tail -n1 out_*.txt
+          mkdir -p res/$T; cp log.txt res/$T/log_$W.txt
+          if [ -f sol.txt ]; then grep '^v' sol.txt | sed 's/^v //' | tr ' ' '\n' | grep -v '^0$' | grep -v '^$' > res/$T/model_$W.txt; fi
+          git config user.name bot; git config user.email bot@users.noreply.github.com
+          git add res; git commit -qm "res $T $W"
+          for i in 1 2 3 4 5 6 7 8; do git pull -q --rebase origin nonce-solver && git push -q origin HEAD:nonce-solver && break; sleep $((RANDOM%5+1)); done
