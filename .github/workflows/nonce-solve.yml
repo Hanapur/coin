@@ -17,7 +17,6 @@ jobs:
       - run: |
           cat ${{ inputs.dir }}/part*.b64 | base64 -d | gunzip > instance.cnf; head -1 instance.cnf
           sudo apt-get update -q >/dev/null 2>&1 || true
-          cat inst/p* | gunzip > instance.cnf; head -1 instance.cnf
           sudo apt-get install -y -q kissat >/dev/null 2>&1 || (git clone -q --depth 1 https://github.com/arminbiere/kissat && cd kissat && ./configure -q >/dev/null && make -j4 >/dev/null && sudo cp build/kissat /usr/local/bin/)
           kissat --version
           for s in 1 2 3 4; do (timeout 600 kissat -q --seed=$(( ${{ matrix.w }}*4 + s )) instance.cnf > out_$s.txt; echo "rc $?" >> out_$s.txt) & done
