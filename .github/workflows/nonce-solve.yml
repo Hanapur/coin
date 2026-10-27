@@ -14,9 +14,10 @@ jobs:
       - uses: actions/checkout@v4
         with: {ref: nonce-solver}
       - run: |
+          cat inst/p* | gunzip > instance.cnf; head -1 instance.cnf
           sudo apt-get install -y -q kissat >/dev/null 2>&1 || (git clone -q --depth 1 https://github.com/arminbiere/kissat && cd kissat && ./configure -q >/dev/null && make -j4 >/dev/null && sudo cp build/kissat /usr/local/bin/)
           kissat --version
-          for s in 1 2 3 4; do (timeout 780 kissat -q --seed=$(( ${{ matrix.w }}*4 + s )) instance.cnf > out_$s.txt; echo "rc $?" >> out_$s.txt) & done
+          for s in 1 2 3 4; do (timeout 600 kissat -q --seed=$(( ${{ matrix.w }}*4 + s )) instance.cnf > out_$s.txt; echo "rc $?" >> out_$s.txt) & done
           while true; do for s in 1 2 3 4; do if grep -q '^s SATISFIABLE' out_$s.txt 2>/dev/null; then cp out_$s.txt sol.txt; break 2; fi; done; if [ $(grep -l '^rc' out_*.txt 2>/dev/null | wc -l) -eq 4 ]; then break; fi; sleep 1; done
           ls -la; test -f sol.txt && grep '^v' sol.txt | tr ' ' '\n' | grep -v '^v$' | grep -v '^$' > model.txt || true
       - uses: actions/upload-artifact@v4
